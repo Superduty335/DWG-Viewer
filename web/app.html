@@ -1,4 +1,4 @@
-<title>DWG-Field</title>
+<title>__APP_NAME__</title>
 __FONTS__
 <style>
 /* Layout: slim chrome around a full-bleed drawing canvas; tools float at the bottom where thumbs reach. */
@@ -206,7 +206,7 @@ button, input { font: inherit; color: inherit; }
 
 <div class="app" id="app">
   <header class="bar">
-    <div class="brand"><svg aria-hidden="true"><use href="#i-logo"/></svg><span class="wordmark">DWG-Field</span></div>
+    <div class="brand"><svg aria-hidden="true"><use href="#i-logo"/></svg><span class="wordmark">__APP_NAME__</span></div>
     <div class="doc-name" id="docName"></div>
     <button class="btn primary" id="btnOpen" title="Open a drawing (Ctrl+O)"><svg aria-hidden="true"><use href="#i-open"/></svg><span>Open</span></button>
   </header>
@@ -283,6 +283,8 @@ __ENGINE__
   const DWG_SRC = "__LIBREDWG_SRC__";
   const WASM_BASE = "__WASM_BASE__";      // folder holding libredwg-web.wasm; empty = next to the DWG reader script
   const SAMPLE = "__SAMPLE_B64__";
+  const APP_NAME = "__APP_NAME__";
+  const PLUS = __PLUS_ON__;               // DWG-Field Plus: drafting tools load after this script and need snap geometry
   const $ = (id) => document.getElementById(id);
   const E = window.CadEngine;
   const el = {
@@ -386,7 +388,7 @@ __ENGINE__
       }
       const t1 = performance.now();
       busy("Drawing…"); await nextFrame();
-      const drawing = E.compile(model);
+      const drawing = E.compile(model, { snap: PLUS });
       const t2 = performance.now();
       state.name = name; state.model = model; state.drawing = drawing;
       state.meta = { kind: kind.kind === "DWG" ? "DWG" : "DXF", size: bytes.byteLength, parseMs: t1 - t0, buildMs: t2 - t1 };
@@ -405,10 +407,11 @@ __ENGINE__
     el.app.classList.add("has-doc");
     el.docName.innerHTML = "";
     const s = document.createElement("strong"); s.textContent = state.name; el.docName.append(s);
-    document.title = state.name + " · DWG-Field";
+    document.title = state.name + " · " + APP_NAME;
     viewer.resize();
     viewer.setDrawing(d);
     renderLayers(); renderInfo();
+    for (const f of hooks.drawing) f(state);
     if (!d.groups.length && !d.texts.length) toast("This drawing's model space is empty.", 5000);
   }
 
@@ -504,6 +507,7 @@ __ENGINE__
 
   // ---------- Sheets ----------
   const sheets = { layers: [$("layersSheet"), $("tLayers")], view: [$("viewSheet"), $("tView")], info: [$("infoSheet"), $("tInfo")] };
+  const hooks = { drawing: [] };
   function openSheet(k) {
     if (state.sheet === k) { closeSheet(); return; }
     closeSheet();
@@ -525,22 +529,35 @@ __ENGINE__
   $("tIn").addEventListener("click", () => viewer.zoomAt(1.6, viewer.W / 2, viewer.H / 2));
   $("tOut").addEventListener("click", () => viewer.zoomAt(1 / 1.6, viewer.W / 2, viewer.H / 2));
   // swipe a sheet's grab handle down to close it
-  for (const [s] of Object.values(sheets)) {
+  function swipeToClose(s) {
     let y0 = null;
     s.querySelector(".sheet-head").addEventListener("touchstart", (e) => { y0 = e.touches[0].clientY; }, { passive: true });
     s.querySelector(".sheet-head").addEventListener("touchend", (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 50) closeSheet(); y0 = null; });
+  }
+  for (const [s] of Object.values(sheets)) swipeToClose(s);
+  function addSheet(key, sheet, button) {
+    sheets[key] = [sheet, button];
+    swipeToClose(sheet);
+    for (const b of sheet.querySelectorAll("[data-close]")) b.addEventListener("click", closeSheet);
   }
 
   // ---------- Gestures ----------
   const pts = new Map();
   let lastTap = 0, moved = 0, endTimer;
+  // A drafting tool (DWG-Field Plus) can claim one-finger gestures: input.hook gets down/move/up/cancel/hover.
+  // A second finger always turns the gesture back into pinch and pan; input.release() hands a mouse drag to panning.
+  const input = { hook: null, release() { if (claimed != null) { claimed = null; moved = 8; beginInteraction(); el.cv.classList.add("dragging"); } } };
+  let claimed = null;
   function rel(e) { const r = el.cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function beginInteraction() { viewer.interacting = true; clearTimeout(endTimer); }
   function scheduleEnd() { clearTimeout(endTimer); endTimer = setTimeout(() => viewer.endInteraction(), 140); }
   el.cv.addEventListener("pointerdown", (e) => {
     if (!state.drawing) return;
     el.cv.setPointerCapture(e.pointerId);
-    pts.set(e.pointerId, rel(e));
+    const p = rel(e);
+    if (input.hook && !pts.size && input.hook.down(p, e)) { claimed = e.pointerId; pts.set(e.pointerId, p); return; }
+    if (claimed != null) { input.hook.cancel(); claimed = null; }
+    pts.set(e.pointerId, p);
     moved = 0; beginInteraction();
     el.cv.classList.add("dragging");
   });
@@ -550,6 +567,12 @@ __ENGINE__
       const w = viewer.toWorld(p.x, p.y);
       el.coords.hidden = false; el.coords.textContent = `X ${fmtNum(w.x)}   Y ${fmtNum(w.y)}`;
     }
+    if (claimed === e.pointerId) {
+      input.hook.move(p, e);
+      if (claimed === e.pointerId) { pts.set(e.pointerId, p); return; }
+      // released to panning: fall through, so this move already pans
+    }
+    if (!pts.size && input.hook && input.hook.hover) input.hook.hover(p, e);
     if (!pts.has(e.pointerId)) return;
     const prev = pts.get(e.pointerId);
     if (pts.size === 1) {
@@ -570,6 +593,11 @@ __ENGINE__
   function up(e) {
     if (!pts.has(e.pointerId)) return;
     pts.delete(e.pointerId);
+    if (claimed === e.pointerId) {
+      claimed = null;
+      if (e.type === "pointercancel") input.hook.cancel(); else input.hook.up(rel(e), e);
+      return;
+    }
     if (!pts.size) {
       el.cv.classList.remove("dragging");
       // double tap zooms in
@@ -654,7 +682,8 @@ __ENGINE__
     if (launch && launch.url) openUrl(launch.url);
   }
   openFromHost();
-  window.__dwgViewer = { openData, viewer, state };
+  window.__dwgViewer = { openData, viewer, state, el, input, hooks, addSheet, openSheet, closeSheet, toast, fmtNum, store, APP_NAME };
 })();
 </script>
+__PLUS__
 __EXTRA__

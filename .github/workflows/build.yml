@@ -43,24 +43,35 @@ jobs:
           java-version: 21
       - run: npm ci
       - run: npm run cap:sync
-      - name: Build APK
+      - name: Build APKs (DWG-Field and DWG-Field Plus)
         working-directory: android
-        run: ./gradlew assembleDebug
-      - name: Check the APK registers for DWG and DXF files
+        run: ./gradlew assembleViewerDebug assemblePlusDebug
+      - name: Name the APKs
+        run: |
+          cp android/app/build/outputs/apk/viewer/debug/app-viewer-debug.apk DWG-Field.apk
+          cp android/app/build/outputs/apk/plus/debug/app-plus-debug.apk DWG-Field-Plus.apk
+      - name: Check both APKs open DWG and DXF files and carry the right app
         run: |
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
-          "$AAPT2" dump xmltree --file AndroidManifest.xml android/app/build/outputs/apk/debug/app-debug.apk > manifest.txt
-          grep -q 'android.intent.action.VIEW' manifest.txt
-          grep -q 'android.intent.action.SEND' manifest.txt
-          grep -q 'image/vnd.dwg' manifest.txt
-          grep -q 'dxf' manifest.txt
-          echo "APK opens DWG and DXF files from Open with and Share"
-      - name: Name the APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk DWG-Field.apk
+          for apk in DWG-Field.apk DWG-Field-Plus.apk; do
+            "$AAPT2" dump xmltree --file AndroidManifest.xml "$apk" > manifest.txt
+            grep -q 'android.intent.action.VIEW' manifest.txt
+            grep -q 'android.intent.action.SEND' manifest.txt
+            grep -q 'image/vnd.dwg' manifest.txt
+            grep -q 'dxf' manifest.txt
+          done
+          test "$("$AAPT2" dump packagename DWG-Field.apk)" = "com.superduty335.dwgfield"
+          test "$("$AAPT2" dump packagename DWG-Field-Plus.apk)" = "com.superduty335.dwgfield.plus"
+          unzip -p DWG-Field.apk assets/public/index.html | grep -q '<title>DWG-Field</title>'
+          unzip -p DWG-Field-Plus.apk assets/public/index.html | grep -q '<title>DWG-Field Plus</title>'
+          "$AAPT2" dump strings DWG-Field-Plus.apk | grep -q 'DWG-Field Plus'
+          echo "Both APKs open DWG and DXF files from Open with and Share; Plus has its own id, name and page"
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: DWG-Field.apk
+          path: |
+            DWG-Field.apk
+            DWG-Field-Plus.apk
           if-no-files-found: error
       # A rolling "latest" pre-release, so the newest APK can be downloaded straight from a phone.
       - name: Publish latest test build
@@ -69,8 +80,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest DWG-Field.apk --prerelease --title "Latest test build" \
-            --notes "Android test build from $(git rev-parse --short HEAD). Download DWG-Field.apk on your phone and open it to install." \
+          gh release create latest DWG-Field.apk DWG-Field-Plus.apk --prerelease --title "Latest test build" \
+            --notes "Android test builds from $(git rev-parse --short HEAD). DWG-Field.apk is the viewer; DWG-Field-Plus.apk adds points, drafting and object snap. Download one (or both, they install side by side) on your phone and open it to install." \
             --target "$GITHUB_SHA"
 
   ios:

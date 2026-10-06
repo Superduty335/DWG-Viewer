@@ -27,6 +27,19 @@ android {
             keyPassword 'android'
         }
     }
+    // Two apps from one project: "viewer" is DWG-Field, "plus" is DWG-Field Plus (points, drafting, object snap).
+    // Plus installs alongside the viewer under its own id; its page (src/plus/assets/public/index.html, written by
+    // web/build.mjs), name and icons override the viewer's.
+    flavorDimensions = ["edition"]
+    productFlavors {
+        viewer {
+            dimension "edition"
+        }
+        plus {
+            dimension "edition"
+            applicationIdSuffix ".plus"
+        }
+    }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
