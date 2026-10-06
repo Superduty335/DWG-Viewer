@@ -1,0 +1,15 @@
+{
+  "name": "DWG-Field",
+  "short_name": "DWG-Field",
+  "description": "Open AutoCAD DWG and DXF drawings on your phone. Works offline.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F7F8FA",
+  "theme_color": "#0E7C86",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ],
+  "file_handlers": [{ "action": "./", "accept": { "image/vnd.dwg": [".dwg"], "image/vnd.dxf": [".dxf"], "application/dxf": [".dxf"] } }]
+}

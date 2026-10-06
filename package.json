@@ -1,0 +1,33 @@
+{
+  "name": "dwg-field",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DWG-Field: open AutoCAD DWG and DXF drawings on Android, iPhone and the web.",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "build:web": "node web/build.mjs",
+    "serve": "npx http-server www -p 8080",
+    "test": "node web/build.mjs && node tools/test-viewer.mjs",
+    "cap:sync": "npm run build:web && npx cap sync",
+    "android": "npm run cap:sync && npx cap open android",
+    "ios": "npm run cap:sync && npx cap open ios",
+    "icons": "node tools/make-icons.mjs && npx capacitor-assets generate --android --ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.6.9",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "7.6.9",
+    "@capacitor/filesystem": "^7.0.0",
+    "@capacitor/ios": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "7.6.9",
+    "@fontsource/bricolage-grotesque": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/schibsted-grotesk": "5.3.0",
+    "@mlightcad/dxf-json": "1.2.8",
+    "@mlightcad/libredwg-web": "0.7.14",
+    "playwright": "1.56.1"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "appId": "com.superduty335.dwgfield",
+  "appName": "DWG-Field",
+  "webDir": "www",
+  "backgroundColor": "#161A21",
+  "android": { "adjustMarginsForEdgeToEdge": "auto" },
+  "ios": { "contentInset": "never" }
+}

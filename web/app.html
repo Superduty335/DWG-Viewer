@@ -1,0 +1,660 @@
+<title>DWG-Field</title>
+__FONTS__
+<style>
+/* Layout: slim chrome around a full-bleed drawing canvas; tools float at the bottom where thumbs reach. */
+:root {
+  --chrome: #F7F8FA;
+  --surface: #FFFFFF;
+  --ink: #1B2230;
+  --muted: #5E6778;
+  --line: #D6DAE2;
+  --hover: #E9ECF2;
+  --accent: #0E7C86;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DDF1F2;
+  --shadow: 0 1px 2px rgba(20, 28, 45, 0.10), 0 8px 28px rgba(20, 28, 45, 0.14);
+  --danger: #B42318;
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-ui: "Schibsted Grotesk", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bar-h: 52px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chrome: #171B22; --surface: #1D222B; --ink: #E6E9EF; --muted: #8E97A8; --line: #2A303B;
+    --hover: #242A35; --accent: #4FC3CC; --accent-ink: #0B1215; --accent-soft: #173439;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45); --danger: #FF8A80;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --chrome: #171B22; --surface: #1D222B; --ink: #E6E9EF; --muted: #8E97A8; --line: #2A303B;
+  --hover: #242A35; --accent: #4FC3CC; --accent-ink: #0B1215; --accent-soft: #173439;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45); --danger: #FF8A80;
+  color-scheme: dark;
+}
+
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--chrome); color: var(--ink);
+  font: 14px/1.4 var(--font-ui); overflow: hidden; overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+}
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.native .app { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); box-sizing: border-box; }
+
+/* Top bar */
+.bar {
+  display: flex; align-items: center; gap: 10px; min-height: var(--bar-h); padding: 6px 12px 6px 16px;
+  box-sizing: border-box; background: var(--chrome); border-bottom: 1px solid var(--line); min-width: 0;
+}
+.brand { display: flex; align-items: center; gap: 8px; flex: none; }
+.brand svg { width: 24px; height: 24px; color: var(--accent); }
+.wordmark { font: 700 19px/1 var(--font-display); letter-spacing: -0.02em; white-space: nowrap; }
+.doc-name { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
+.doc-name strong { color: var(--ink); font-weight: 500; }
+.has-doc .wordmark { display: none; }
+@media (min-width: 640px) { .has-doc .wordmark { display: inline; } }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 38px; min-width: 38px; padding: 0 10px; box-sizing: border-box;
+  border: 0; border-radius: 10px; background: transparent; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { background: var(--hover); }
+.btn:disabled { opacity: 0.4; cursor: default; background: transparent; }
+.btn svg { width: 20px; height: 20px; flex: none; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); padding: 0 14px; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.big { height: 46px; padding: 0 20px; font-size: 15px; border-radius: 12px; }
+.btn.ghost { border: 1px solid var(--line); }
+
+/* Stage */
+.stage { position: relative; min-height: 0; overflow: hidden; background: var(--canvas-bg, #161A21); }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#cv.dragging { cursor: grabbing; }
+
+/* Floating tools */
+.tools {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 2px; padding: 5px; border-radius: 16px;
+  background: color-mix(in srgb, var(--chrome) 92%, transparent); border: 1px solid var(--line);
+  box-shadow: var(--shadow); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  max-width: calc(100% - 24px); box-sizing: border-box;
+}
+.tool {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 58px; height: 50px; border: 0; border-radius: 12px; background: transparent; cursor: pointer;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; color: var(--muted);
+}
+.tool svg { width: 21px; height: 21px; color: var(--ink); }
+.tool:hover { background: var(--hover); }
+.tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.tool[aria-pressed="true"] svg { color: var(--accent); }
+.tool.zoom { display: none; }
+@media (hover: hover) and (pointer: fine) { .tool.zoom { display: flex; } }
+@media (max-width: 360px) { .tool { width: 50px; } }
+
+.coords {
+  position: absolute; left: 12px; bottom: 12px; padding: 4px 8px; border-radius: 6px;
+  font: 500 11.5px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted);
+  background: color-mix(in srgb, var(--chrome) 85%, transparent); border: 1px solid var(--line); pointer-events: none;
+}
+@media (hover: none), (max-width: 760px) { .coords { display: none; } }
+
+/* Empty state */
+.empty {
+  position: absolute; inset: 0; display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box;
+  background: var(--chrome); overflow-y: auto;
+}
+.empty-card { width: min(420px, 100%); text-align: center; }
+.empty-art { display: block; width: 132px; height: 96px; margin: 0 auto 18px; color: var(--accent); }
+.empty h1 { font: 700 26px/1.15 var(--font-display); letter-spacing: -0.02em; margin: 0 0 8px; }
+.empty p { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
+.empty .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.empty .fine { margin: 26px 0 0; font-size: 12.5px; }
+.formats { display: inline-flex; gap: 6px; margin-bottom: 14px; }
+.formats span { font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; color: var(--accent); border: 1px solid currentColor; border-radius: 5px; padding: 4px 6px; }
+
+/* Busy overlay */
+.busy {
+  position: absolute; inset: 0; display: grid; place-items: center; background: color-mix(in srgb, var(--chrome) 70%, transparent);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+.busy-card { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--line); max-width: calc(100% - 32px); }
+.spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+/* Sheets: bottom sheet on phones, side panel on wide screens */
+.scrim { position: fixed; inset: 0; background: rgba(8, 10, 14, 0.35); z-index: 20; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 72vh; display: flex; flex-direction: column;
+  background: var(--surface); border-top-left-radius: 18px; border-top-right-radius: 18px; box-shadow: var(--shadow);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.sheet .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 8px auto 2px; flex: none; }
+@media (min-width: 760px) {
+  .scrim { background: transparent; }
+  .sheet { left: auto; top: calc(var(--bar-h) + 10px); right: 10px; bottom: 10px; width: 330px; max-height: none; border-radius: 16px; border: 1px solid var(--line); }
+  .sheet .grab { display: none; }
+}
+.sheet-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 10px 18px; border-bottom: 1px solid var(--line); flex: none; }
+.sheet-head h2 { font: 700 17px/1.2 var(--font-display); margin: 0; flex: 1; }
+.sheet-head .count { font: 500 12px var(--font-mono); color: var(--muted); margin-left: 6px; }
+.sheet-body { overflow-y: auto; flex: 1; min-height: 0; -webkit-overflow-scrolling: touch; }
+.sheet-tools { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
+.sheet-tools input[type="search"] {
+  flex: 1; min-width: 0; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--chrome);
+  padding: 0 10px; outline: none; font-size: 15px;
+}
+.sheet-tools input[type="search"]:focus { border-color: var(--accent); }
+.chip { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.chip:hover { background: var(--hover); }
+
+.layer {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 50px; padding: 6px 16px 6px 18px; box-sizing: border-box;
+  border: 0; border-bottom: 1px solid var(--line); background: transparent; cursor: pointer; text-align: left;
+}
+.layer:hover { background: var(--hover); }
+.swatch { width: 16px; height: 16px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.45); }
+.layer .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.layer .n { font: 12px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.layer.off .name, .layer.off .swatch { opacity: 0.4; }
+.switch { width: 40px; height: 24px; border-radius: 12px; background: var(--line); position: relative; flex: none; transition: background 0.15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.3); transition: transform 0.15s; }
+.layer:not(.off) .switch { background: var(--accent); }
+.layer:not(.off) .switch::after { transform: translateX(16px); }
+.side-empty { padding: 22px 18px; color: var(--muted); }
+
+.info { margin: 0; padding: 6px 18px 18px; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; }
+.info dt { color: var(--muted); font-size: 13px; }
+.info dd { margin: 0; font-size: 14px; word-break: break-word; }
+.info dd.mono { font: 13px var(--font-mono); font-variant-numeric: tabular-nums; }
+.note { margin: 0 18px 18px; padding: 10px 12px; border-radius: 10px; background: var(--chrome); color: var(--muted); font-size: 13px; }
+
+.seg { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--chrome); border: 1px solid var(--line); }
+.seg button { flex: 1; height: 32px; border: 0; border-radius: 8px; background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+.opt { padding: 12px 18px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+.opt label { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+.drop { position: absolute; inset: 12px; border: 2px dashed var(--accent); border-radius: 16px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent-soft) 80%, transparent); font: 600 18px var(--font-display); color: var(--accent); z-index: 5; pointer-events: none; }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--chrome);
+  box-shadow: var(--shadow); font-size: 14px;
+}
+</style>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 16.5 11 8l3 5 3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="16.5" r="1.3" fill="currentColor"/><circle cx="17" cy="10" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="8.5" y="8.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 4 8.5 4.5L12 13 3.5 8.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5M3.5 16l8.5 4.5 8.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-view" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.8" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11m0-11-11 11" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <header class="bar">
+    <div class="brand"><svg aria-hidden="true"><use href="#i-logo"/></svg><span class="wordmark">DWG-Field</span></div>
+    <div class="doc-name" id="docName"></div>
+    <button class="btn primary" id="btnOpen" title="Open a drawing (Ctrl+O)"><svg aria-hidden="true"><use href="#i-open"/></svg><span>Open</span></button>
+  </header>
+  <main class="stage" id="stage">
+    <canvas id="cv" aria-label="Drawing"></canvas>
+    <div class="coords" id="coords" hidden></div>
+    <nav class="tools" id="tools" hidden aria-label="Drawing tools">
+      <button class="tool" id="tFit" title="Fit drawing (F)"><svg aria-hidden="true"><use href="#i-fit"/></svg>Fit</button>
+      <button class="tool zoom" id="tOut" title="Zoom out (-)"><svg aria-hidden="true"><use href="#i-minus"/></svg>Out</button>
+      <button class="tool zoom" id="tIn" title="Zoom in (+)"><svg aria-hidden="true"><use href="#i-plus"/></svg>In</button>
+      <button class="tool" id="tLayers" title="Layers (L)" aria-pressed="false"><svg aria-hidden="true"><use href="#i-layers"/></svg>Layers</button>
+      <button class="tool" id="tView" title="Display" aria-pressed="false"><svg aria-hidden="true"><use href="#i-view"/></svg>Display</button>
+      <button class="tool" id="tInfo" title="Drawing info" aria-pressed="false"><svg aria-hidden="true"><use href="#i-info"/></svg>Info</button>
+    </nav>
+    <section class="empty" id="empty">
+      <div class="empty-card">
+        <svg class="empty-art" viewBox="0 0 132 96" aria-hidden="true">
+          <rect x="6" y="6" width="120" height="84" rx="8" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.35"/>
+          <path d="M22 72V24h40v20h48v28z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+          <path d="M62 44v28M40 72a14 14 0 0 1 14-14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M22 82h88" stroke="currentColor" stroke-width="1.6" opacity="0.6"/><path d="M22 79v6M110 79v6" stroke="currentColor" stroke-width="1.6" opacity="0.6"/>
+        </svg>
+        <div class="formats"><span>DWG</span><span>DXF</span></div>
+        <h1>Open a drawing</h1>
+        <p>View AutoCAD DWG and DXF files on your phone. Pinch to zoom, drag to pan, and switch layers on and off.</p>
+        <div class="actions">
+          <button class="btn primary big" id="btnOpen2"><svg aria-hidden="true"><use href="#i-open"/></svg>Open drawing</button>
+          <button class="btn ghost big" id="btnSample">Try a sample</button>
+        </div>
+        <p class="fine">Files are read on your device and never uploaded.</p>
+      </div>
+    </section>
+    <div class="busy" id="busy" hidden><div class="busy-card"><div class="spinner"></div><span id="busyText">Reading drawing…</span></div></div>
+    <div class="drop" id="drop" hidden>Drop a DWG or DXF file</div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="layersSheet" hidden aria-label="Layers">
+  <div class="grab"></div>
+  <div class="sheet-head"><h2>Layers<span class="count" id="layerCount"></span></h2><button class="btn" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="sheet-tools">
+    <input type="search" id="layerFilter" placeholder="Find a layer" autocomplete="off" hidden>
+    <span style="flex:1" id="layerSpacer"></span>
+    <button class="chip" id="allOn">All on</button>
+    <button class="chip" id="allOff">All off</button>
+  </div>
+  <div class="sheet-body" id="layerList"></div>
+</aside>
+<aside class="sheet" id="viewSheet" hidden aria-label="Display">
+  <div class="grab"></div>
+  <div class="sheet-head"><h2>Display</h2><button class="btn" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="sheet-body">
+    <div class="opt"><label>Background</label><div class="seg" id="segBg"><button data-v="dark">Dark</button><button data-v="light">Paper</button></div></div>
+    <div class="opt"><label>Colors</label><div class="seg" id="segColor"><button data-v="color">Drawing colors</button><button data-v="mono">Black &amp; white</button></div></div>
+    <div class="opt"><label>Text</label><div class="seg" id="segText"><button data-v="on">Show</button><button data-v="off">Hide</button></div></div>
+  </div>
+</aside>
+<aside class="sheet" id="infoSheet" hidden aria-label="Drawing info">
+  <div class="grab"></div>
+  <div class="sheet-head"><h2>Drawing info</h2><button class="btn" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="sheet-body" id="infoBody"></div>
+</aside>
+<div class="toast" id="toast" role="status" hidden></div>
+<input type="file" id="fileInput" hidden>
+
+<script>
+__ENGINE__
+</script>
+<script>
+(() => {
+  "use strict";
+  const DXF_SRC = "__DXFJSON_SRC__";
+  const DWG_SRC = "__LIBREDWG_SRC__";
+  const WASM_BASE = "__WASM_BASE__";      // folder holding libredwg-web.wasm; empty = next to the DWG reader script
+  const SAMPLE = "__SAMPLE_B64__";
+  const $ = (id) => document.getElementById(id);
+  const E = window.CadEngine;
+  const el = {
+    app: $("app"), cv: $("cv"), empty: $("empty"), tools: $("tools"), busy: $("busy"), busyText: $("busyText"),
+    docName: $("docName"), fileInput: $("fileInput"), toast: $("toast"), scrim: $("scrim"), coords: $("coords"),
+    layerList: $("layerList"), layerCount: $("layerCount"), layerFilter: $("layerFilter"), infoBody: $("infoBody"),
+    drop: $("drop"), stage: $("stage"),
+  };
+  const viewer = new E.Viewer(el.cv);
+  const state = { name: "", drawing: null, model: null, meta: null, sheet: null };
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("dwgf." + k); return v == null ? d : v; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("dwgf." + k, v); } catch {} },
+  };
+  const isTouch = matchMedia("(hover: none)").matches;
+  if (!isTouch) el.fileInput.accept = ".dwg,.dxf";   // phones grey out CAD files they don't know, so accept anything there
+
+  // ---------- Display settings ----------
+  const prefs = { bg: store.get("bg", "dark"), color: store.get("color", "color"), text: store.get("text", "on") };
+  function applyPrefs() {
+    const light = prefs.bg === "light";
+    const bg = light ? "#FFFFFF" : "#161A21";
+    viewer.light = light;
+    viewer.mono = prefs.color === "mono";
+    viewer.showText = prefs.text !== "off";
+    el.stage.style.setProperty("--canvas-bg", bg);
+    viewer.setTheme(bg, light ? "#111111" : "#F2F4F7");
+    for (const [id, key] of [["segBg", "bg"], ["segColor", "color"], ["segText", "text"]]) {
+      for (const b of $(id).querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === prefs[key]));
+    }
+  }
+  for (const [id, key] of [["segBg", "bg"], ["segColor", "color"], ["segText", "text"]]) {
+    $(id).addEventListener("click", (ev) => {
+      const b = ev.target.closest("button"); if (!b) return;
+      prefs[key] = b.dataset.v; store.set(key, b.dataset.v); applyPrefs();
+    });
+  }
+  const drawTexts = viewer.drawTexts.bind(viewer);
+  viewer.drawTexts = function () { if (this.showText !== false) drawTexts(); };
+  applyPrefs();
+
+  // ---------- Toast / busy ----------
+  let toastTimer;
+  function toast(msg, ms = 3200) {
+    el.toast.textContent = msg; el.toast.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.toast.hidden = true), ms);
+  }
+  function busy(text) { if (text) { el.busyText.textContent = text; el.busy.hidden = false; } else el.busy.hidden = true; }
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+  // ---------- Parsers (loaded on first use) ----------
+  let dxfMod, dwgLib;
+  async function getDxf() { return dxfMod || (dxfMod = await import(DXF_SRC)); }
+  async function getDwg() {
+    if (dwgLib) return dwgLib;
+    const mod = await import(DWG_SRC);
+    dwgLib = { mod, lib: await (WASM_BASE ? mod.LibreDwg.create(WASM_BASE) : mod.LibreDwg.create()) };
+    return dwgLib;
+  }
+
+  function sniff(bytes, name) {
+    const head = new TextDecoder("latin1").decode(bytes.subarray(0, 22));
+    if (/^AC1\d{3}/.test(head)) return { kind: "DWG", ver: head.slice(0, 6) };
+    if (head.startsWith("AutoCAD Binary DXF")) return { kind: "BDXF" };
+    if (/^﻿?\s*0\s*[\r\n]/.test(head) || /\.dxf$/i.test(name)) return { kind: "DXF" };
+    if (/\.dwg$/i.test(name)) return { kind: "DWG", ver: "" };
+    return null;
+  }
+  const DWG_VERSIONS = { AC1012: "R13", AC1014: "R14", AC1015: "2000", AC1018: "2004", AC1021: "2007", AC1024: "2010", AC1027: "2013", AC1032: "2018", AC1009: "R11/R12", AC1006: "R10" };
+
+  function decodeText(bytes) {
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch { return new TextDecoder("windows-1252").decode(bytes); }
+  }
+
+  async function openData(bytes, name) {
+    const kind = sniff(bytes, name);
+    if (!kind) { toast("That doesn't look like a DWG or DXF file."); return; }
+    closeSheet();
+    const t0 = performance.now();
+    try {
+      let model;
+      if (kind.kind === "DWG") {
+        busy(dwgLib ? "Reading drawing…" : "Loading the DWG reader…");
+        await nextFrame();
+        const { mod, lib } = await getDwg();
+        busy("Reading drawing…"); await nextFrame();
+        const dwg = lib.dwg_read_data(bytes, mod.Dwg_File_Type.DWG);
+        if (!dwg) throw new Error("unreadable");
+        let db;
+        try { db = lib.convert(dwg); } finally { try { lib.dwg_free(dwg); } catch {} }
+        model = E.fromDwg(db);
+        model.version = DWG_VERSIONS[kind.ver] ? "AutoCAD " + DWG_VERSIONS[kind.ver] : kind.ver;
+      } else {
+        busy("Reading drawing…"); await nextFrame();
+        const { DxfParser } = await getDxf();
+        const p = new DxfParser();
+        const db = kind.kind === "BDXF" ? p.parseBuffer(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)) : p.parseSync(decodeText(bytes));
+        model = E.fromDxf(db);
+        model.version = DWG_VERSIONS[model.version] ? "AutoCAD " + DWG_VERSIONS[model.version] : model.version;
+      }
+      const t1 = performance.now();
+      busy("Drawing…"); await nextFrame();
+      const drawing = E.compile(model);
+      const t2 = performance.now();
+      state.name = name; state.model = model; state.drawing = drawing;
+      state.meta = { kind: kind.kind === "DWG" ? "DWG" : "DXF", size: bytes.byteLength, parseMs: t1 - t0, buildMs: t2 - t1 };
+      showDrawing();
+    } catch (err) {
+      console.error(err);
+      toast(kind.kind === "DWG"
+        ? "Couldn't read this DWG. It may be damaged or from a newer AutoCAD version than the reader supports."
+        : "Couldn't read this DXF file.", 6000);
+    } finally { busy(null); }
+  }
+
+  function showDrawing() {
+    const d = state.drawing;
+    el.empty.hidden = true; el.tools.hidden = false;
+    el.app.classList.add("has-doc");
+    el.docName.innerHTML = "";
+    const s = document.createElement("strong"); s.textContent = state.name; el.docName.append(s);
+    document.title = state.name + " · DWG-Field";
+    viewer.resize();
+    viewer.setDrawing(d);
+    renderLayers(); renderInfo();
+    if (!d.groups.length && !d.texts.length) toast("This drawing's model space is empty.", 5000);
+  }
+
+  async function openFile(file) {
+    if (!file) return;
+    busy("Reading drawing…");
+    try { await openData(new Uint8Array(await file.arrayBuffer()), file.name); }
+    catch { busy(null); toast("Couldn't open that file."); }
+  }
+
+  // ---------- Layers ----------
+  function renderLayers() {
+    const d = state.drawing; if (!d) return;
+    const used = d.layers.filter((l) => l.used);
+    const q = el.layerFilter.value.trim().toLowerCase();
+    el.layerFilter.hidden = used.length < 10;
+    $("layerSpacer").hidden = !el.layerFilter.hidden;
+    el.layerCount.textContent = used.length;
+    el.layerList.innerHTML = "";
+    const list = used.filter((l) => !q || l.name.toLowerCase().includes(q));
+    if (!list.length) { const p = document.createElement("div"); p.className = "side-empty"; p.textContent = used.length ? "No layers match." : "This drawing has no layers in use."; el.layerList.append(p); return; }
+    const frag = document.createDocumentFragment();
+    for (const l of list) {
+      const on = viewer.layerOn.get(l.name) !== false;
+      const row = document.createElement("button");
+      row.className = "layer" + (on ? "" : " off");
+      row.setAttribute("role", "switch"); row.setAttribute("aria-checked", String(on));
+      const sw = document.createElement("span"); sw.className = "swatch"; sw.style.background = viewer.colorOf(l.color, l.name);
+      const nm = document.createElement("span"); nm.className = "name"; nm.textContent = l.name;
+      const n = document.createElement("span"); n.className = "n"; n.textContent = l.count ? l.count.toLocaleString() : "";
+      const t = document.createElement("span"); t.className = "switch";
+      row.append(sw, nm, n, t);
+      row.addEventListener("click", () => {
+        const now = viewer.layerOn.get(l.name) === false;
+        viewer.setLayer(l.name, now);
+        row.classList.toggle("off", !now); row.setAttribute("aria-checked", String(now));
+      });
+      frag.append(row);
+    }
+    el.layerList.append(frag);
+  }
+  el.layerFilter.addEventListener("input", renderLayers);
+  function setAll(on) {
+    const d = state.drawing; if (!d) return;
+    const q = el.layerFilter.value.trim().toLowerCase();
+    for (const l of d.layers) if (!q || l.name.toLowerCase().includes(q)) viewer.layerOn.set(l.name, on);
+    viewer.request(true); renderLayers();
+  }
+  $("allOn").addEventListener("click", () => setAll(true));
+  $("allOff").addEventListener("click", () => setAll(false));
+
+  // ---------- Info ----------
+  function fmtNum(v) {
+    const a = Math.abs(v);
+    return v.toLocaleString(undefined, { maximumFractionDigits: a >= 1000 ? 0 : a >= 10 ? 2 : 4 });
+  }
+  function renderInfo() {
+    const d = state.drawing, m = state.model, meta = state.meta;
+    const u = E.UNITS[m.header.INSUNITS || m.header.$INSUNITS || 0] || "";
+    const e = d.ext, o = d.origin;
+    const rows = [
+      ["File", state.name],
+      ["Format", meta.kind + (m.version ? " · " + m.version : "")],
+      ["Size", (meta.size / 1024 < 1024 ? (meta.size / 1024).toFixed(0) + " KB" : (meta.size / 1048576).toFixed(1) + " MB")],
+      ["Units", u || "Unitless"],
+      ["Width", fmtNum(e.maxX - e.minX) + (u ? " " + u : "")],
+      ["Height", fmtNum(e.maxY - e.minY) + (u ? " " + u : "")],
+      ["Lower left", fmtNum(e.minX + o.x) + ", " + fmtNum(e.minY + o.y)],
+      ["Objects", d.stats.entities.toLocaleString()],
+      ["Layers", d.layers.filter((l) => l.used).length + " in use of " + d.layers.length],
+      ["Blocks", d.stats.blocks.toLocaleString()],
+      ["Opened in", Math.round(meta.parseMs + meta.buildMs) + " ms"],
+    ];
+    const dl = document.createElement("dl"); dl.className = "info";
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt"); dt.textContent = k;
+      const dd = document.createElement("dd"); dd.textContent = v;
+      if (/Width|Height|Lower|Objects|Blocks|Opened/.test(k)) dd.className = "mono";
+      dl.append(dt, dd);
+    }
+    el.infoBody.innerHTML = ""; el.infoBody.append(dl);
+    const skipped = Object.entries(d.stats.skipped);
+    if (skipped.length) {
+      const n = document.createElement("p"); n.className = "note";
+      n.textContent = "Not shown: " + skipped.map(([t, c]) => `${t.toLowerCase()} ×${c}`).join(", ") + ". This viewer shows model space; paper-space layouts, 3D solids and images are left out.";
+      el.infoBody.append(n);
+    } else {
+      const n = document.createElement("p"); n.className = "note";
+      n.textContent = "This viewer shows the model space of the drawing. Paper-space layouts are not shown.";
+      el.infoBody.append(n);
+    }
+  }
+
+  // ---------- Sheets ----------
+  const sheets = { layers: [$("layersSheet"), $("tLayers")], view: [$("viewSheet"), $("tView")], info: [$("infoSheet"), $("tInfo")] };
+  function openSheet(k) {
+    if (state.sheet === k) { closeSheet(); return; }
+    closeSheet();
+    state.sheet = k;
+    sheets[k][0].hidden = false; sheets[k][1].setAttribute("aria-pressed", "true");
+    el.scrim.hidden = false;
+    if (k === "layers") renderLayers();
+  }
+  function closeSheet() {
+    for (const [s, b] of Object.values(sheets)) { s.hidden = true; b.setAttribute("aria-pressed", "false"); }
+    el.scrim.hidden = true; state.sheet = null;
+  }
+  el.scrim.addEventListener("click", closeSheet);
+  for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", closeSheet);
+  $("tLayers").addEventListener("click", () => openSheet("layers"));
+  $("tView").addEventListener("click", () => openSheet("view"));
+  $("tInfo").addEventListener("click", () => openSheet("info"));
+  $("tFit").addEventListener("click", () => viewer.fit());
+  $("tIn").addEventListener("click", () => viewer.zoomAt(1.6, viewer.W / 2, viewer.H / 2));
+  $("tOut").addEventListener("click", () => viewer.zoomAt(1 / 1.6, viewer.W / 2, viewer.H / 2));
+  // swipe a sheet's grab handle down to close it
+  for (const [s] of Object.values(sheets)) {
+    let y0 = null;
+    s.querySelector(".sheet-head").addEventListener("touchstart", (e) => { y0 = e.touches[0].clientY; }, { passive: true });
+    s.querySelector(".sheet-head").addEventListener("touchend", (e) => { if (y0 != null && e.changedTouches[0].clientY - y0 > 50) closeSheet(); y0 = null; });
+  }
+
+  // ---------- Gestures ----------
+  const pts = new Map();
+  let lastTap = 0, moved = 0, endTimer;
+  function rel(e) { const r = el.cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function beginInteraction() { viewer.interacting = true; clearTimeout(endTimer); }
+  function scheduleEnd() { clearTimeout(endTimer); endTimer = setTimeout(() => viewer.endInteraction(), 140); }
+  el.cv.addEventListener("pointerdown", (e) => {
+    if (!state.drawing) return;
+    el.cv.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, rel(e));
+    moved = 0; beginInteraction();
+    el.cv.classList.add("dragging");
+  });
+  el.cv.addEventListener("pointermove", (e) => {
+    const p = rel(e);
+    if (state.drawing && e.pointerType === "mouse") {
+      const w = viewer.toWorld(p.x, p.y);
+      el.coords.hidden = false; el.coords.textContent = `X ${fmtNum(w.x)}   Y ${fmtNum(w.y)}`;
+    }
+    if (!pts.has(e.pointerId)) return;
+    const prev = pts.get(e.pointerId);
+    if (pts.size === 1) {
+      viewer.pan(p.x - prev.x, p.y - prev.y);
+      moved += Math.abs(p.x - prev.x) + Math.abs(p.y - prev.y);
+      pts.set(e.pointerId, p);
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.entries()];
+      const other = a[0] === e.pointerId ? b[1] : a[1];
+      const d0 = Math.hypot(prev.x - other.x, prev.y - other.y), d1 = Math.hypot(p.x - other.x, p.y - other.y);
+      const c0 = { x: (prev.x + other.x) / 2, y: (prev.y + other.y) / 2 }, c1 = { x: (p.x + other.x) / 2, y: (p.y + other.y) / 2 };
+      viewer.pan(c1.x - c0.x, c1.y - c0.y);
+      if (d0 > 2) viewer.zoomAt(d1 / d0, c1.x, c1.y);
+      moved += 10;
+      pts.set(e.pointerId, p);
+    }
+  });
+  function up(e) {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (!pts.size) {
+      el.cv.classList.remove("dragging");
+      // double tap zooms in
+      if (moved < 8 && e.pointerType !== "mouse") {
+        const now = performance.now();
+        if (now - lastTap < 320) { const p = rel(e); viewer.zoomAt(2, p.x, p.y); lastTap = 0; } else lastTap = now;
+      }
+      scheduleEnd();
+    }
+  }
+  el.cv.addEventListener("pointerup", up);
+  el.cv.addEventListener("pointercancel", up);
+  el.cv.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") el.coords.hidden = true; });
+  el.cv.addEventListener("dblclick", (e) => { const p = rel(e); viewer.zoomAt(e.shiftKey ? 0.5 : 2, p.x, p.y); });
+  el.cv.addEventListener("wheel", (e) => {
+    if (!state.drawing) return;
+    e.preventDefault();
+    beginInteraction();
+    const p = rel(e);
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    // Pinch (ctrlKey) and mouse wheels zoom; trackpad two-finger scrolling pans.
+    const wheelLike = e.deltaMode === 1 || (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50);
+    if (e.ctrlKey || wheelLike) {
+      viewer.zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0018)), p.x, p.y);
+    } else {
+      viewer.pan(-e.deltaX, -dy);
+    }
+    scheduleEnd();
+  }, { passive: false });
+  new ResizeObserver(() => viewer.resize()).observe(el.cv);
+
+  // ---------- Opening files ----------
+  el.fileInput.addEventListener("change", () => { const f = el.fileInput.files[0]; el.fileInput.value = ""; openFile(f); });
+  for (const id of ["btnOpen", "btnOpen2"]) $(id).addEventListener("click", () => el.fileInput.click());
+  $("btnSample").addEventListener("click", () => {
+    const bin = atob(SAMPLE), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    openData(bytes, "Sample floor plan.dxf");
+  });
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; el.drop.hidden = false; e.preventDefault(); } });
+  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; el.drop.hidden = true; } });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; el.drop.hidden = true; const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+  window.addEventListener("keydown", (e) => {
+    if (e.target.closest && e.target.closest("input")) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "o") { e.preventDefault(); el.fileInput.click(); return; }
+    if (mod || !state.drawing) return;
+    if (e.key === "f" || e.key === "F" || e.key === "0") viewer.fit();
+    else if (e.key === "+" || e.key === "=") viewer.zoomAt(1.4, viewer.W / 2, viewer.H / 2);
+    else if (e.key === "-" || e.key === "_") viewer.zoomAt(1 / 1.4, viewer.W / 2, viewer.H / 2);
+    else if (e.key === "l" || e.key === "L") openSheet("layers");
+    else if (e.key === "Escape") closeSheet();
+    else if (e.key.startsWith("Arrow")) { const d = 60; viewer.pan(e.key === "ArrowLeft" ? d : e.key === "ArrowRight" ? -d : 0, e.key === "ArrowUp" ? d : e.key === "ArrowDown" ? -d : 0); }
+  });
+
+  // File handling API (installed web app "Open with")
+  if ("launchQueue" in window) {
+    window.launchQueue.setConsumer(async (params) => { const h = params.files && params.files[0]; if (h) openFile(await h.getFile()); });
+  }
+
+  // Phone app: files from "Open with" / "Share"
+  function b64ToBytes(b64) { const bin = atob(b64), out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  async function openFromHost() {
+    const cap = window.Capacitor;
+    if (!(cap && cap.isNativePlatform && cap.isNativePlatform())) return;
+    document.documentElement.classList.add("native", "mobile");
+    const { App, Filesystem } = cap.Plugins;
+    const openUrl = async (url) => {
+      if (!url) return;
+      try {
+        busy("Reading drawing…");
+        const res = await Filesystem.readFile({ path: url });
+        let name = decodeURIComponent(url.split("?")[0].split("/").pop() || "");
+        if (!/\.(dwg|dxf)$/i.test(name)) name = "Drawing";
+        await openData(b64ToBytes(res.data), name);
+      } catch (e) { busy(null); toast("Couldn't open that file."); }
+    };
+    App.addListener("appUrlOpen", (e) => openUrl(e.url));
+    const launch = await App.getLaunchUrl().catch(() => null);
+    if (launch && launch.url) openUrl(launch.url);
+  }
+  openFromHost();
+  window.__dwgViewer = { openData, viewer, state };
+})();
+</script>
+__EXTRA__

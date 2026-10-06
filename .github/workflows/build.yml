@@ -1,0 +1,91 @@
+name: Build apps
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Viewer test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-screenshots
+          path: test-output/*.png
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run cap:sync
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - name: Check the APK registers for DWG and DXF files
+        run: |
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          "$AAPT2" dump xmltree --file AndroidManifest.xml android/app/build/outputs/apk/debug/app-debug.apk > manifest.txt
+          grep -q 'android.intent.action.VIEW' manifest.txt
+          grep -q 'android.intent.action.SEND' manifest.txt
+          grep -q 'image/vnd.dwg' manifest.txt
+          grep -q 'dxf' manifest.txt
+          echo "APK opens DWG and DXF files from Open with and Share"
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk DWG-Field.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: DWG-Field.apk
+          if-no-files-found: error
+      # A rolling "latest" pre-release, so the newest APK can be downloaded straight from a phone.
+      - name: Publish latest test build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest DWG-Field.apk --prerelease --title "Latest test build" \
+            --notes "Android test build from $(git rev-parse --short HEAD). Download DWG-Field.apk on your phone and open it to install." \
+            --target "$GITHUB_SHA"
+
+  ios:
+    name: iOS (compile check)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run cap:sync
+      - name: Build for the iOS Simulator
+        run: >
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug
+          -sdk iphonesimulator -destination "generic/platform=iOS Simulator"
+          CODE_SIGNING_ALLOWED=NO build

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DWG-Field</string>
+    <string name="title_activity_main">DWG-Field</string>
+    <string name="package_name">com.superduty335.dwgfield</string>
+    <string name="custom_url_scheme">com.superduty335.dwgfield</string>
+</resources>
