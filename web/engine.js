@@ -189,6 +189,21 @@
     return s.replace(/\u0001/g, "\\").replace(/\u0002/g, "{").replace(/\u0003/g, "}");
   }
 
+  // ---------- Snap geometry (optional) ----------
+  // compile(model, { snap: true }) also keeps the drawing's lines, arcs and points as plain numbers
+  // (in the same shifted coordinates as the Path2D groups) so object snaps can find them later:
+  //   s: segments  [x1, y1, x2, y2, kind, layer]   kind 0 = straight line, 1 = piece of a flattened curve
+  //   a: arcs      [cx, cy, r, start, sweep, layer] sweep runs counter-clockwise; TAU = full circle
+  //   p: points    [x, y, kind, layer]              kind 0 = curve end, 1 = node (POINT), 2 = centre
+  const GEO_MAX = 6e6;                // numbers kept per kind; past this, snapping ignores the rest
+  let geoLayers = null;               // layer name -> index while compiling with snap geometry
+  function geoLayer(name) {
+    let i = geoLayers.get(name);
+    if (i == null) { i = geoLayers.size; geoLayers.set(name, i); }
+    return i;
+  }
+  function normAngle(a) { a %= TAU; return a < 0 ? a + TAU : a; }
+
   // ---------- Builder: one compiled block (or model space) ----------
   class Builder {
     constructor(ox = 0, oy = 0) {
@@ -198,14 +213,21 @@
       this.infinite = [];
       this.minX = Infinity; this.minY = Infinity; this.maxX = -Infinity; this.maxY = -Infinity;
       this.cur = null;
+      this.geo = geoLayers ? { s: [], a: [], p: [] } : null;
+      this.li = 0; this.gx = 0; this.gy = 0;
+      this.noGeo = false;                // set while drawing hatches, whose pattern lines are not snap targets
+      this.curve = 0;                    // 1 while drawing a flattened curve
     }
     use(layer, color) {
       const key = layer + "\u0001" + color;
       let g = this.groups.get(key);
       if (!g) { g = { layer, color, stroke: null, fill: null, tint: null }; this.groups.set(key, g); }
       this.cur = g;
+      if (this.geo) this.li = geoLayer(layer);
       return g;
     }
+    geoOk() { return this.geo && !this.noGeo; }
+    geoPoint(x, y, kind) { if (this.geoOk() && this.geo.p.length < GEO_MAX) this.geo.p.push(x - this.ox, y - this.oy, kind, this.li); }
     get s() { const g = this.cur; return g.stroke || (g.stroke = new Path2D()); }
     get f() { const g = this.cur; return g.fill || (g.fill = new Path2D()); }
     get t() { const g = this.cur; return g.tint || (g.tint = new Path2D()); }
@@ -214,8 +236,14 @@
       if (x < this.minX) this.minX = x; if (x > this.maxX) this.maxX = x;
       if (y < this.minY) this.minY = y; if (y > this.maxY) this.maxY = y;
     }
-    moveTo(x, y, p = this.s) { this.box(x, y); p.moveTo(x - this.ox, y - this.oy); }
-    lineTo(x, y, p = this.s) { this.box(x, y); p.lineTo(x - this.ox, y - this.oy); }
+    moveTo(x, y, p = this.s) { this.box(x, y); p.moveTo(x - this.ox, y - this.oy); this.gx = x - this.ox; this.gy = y - this.oy; }
+    lineTo(x, y, p = this.s) {
+      this.box(x, y);
+      const lx = x - this.ox, ly = y - this.oy;
+      p.lineTo(lx, ly);
+      if (this.geoOk() && (lx !== this.gx || ly !== this.gy) && this.geo.s.length < GEO_MAX) this.geo.s.push(this.gx, this.gy, lx, ly, this.curve, this.li);
+      this.gx = lx; this.gy = ly;
+    }
     poly(pts, closed, p = this.s) {
       if (!pts.length) return;
       this.moveTo(pts[0].x, pts[0].y, p);
@@ -228,6 +256,12 @@
       if (connect) this.lineTo(sx, sy, p); else this.moveTo(sx, sy, p);
       this.box(cx - r, cy - r); this.box(cx + r, cy + r);
       p.arc(cx - this.ox, cy - this.oy, r, a0, a1, cw);
+      if (this.geoOk() && this.geo.a.length < GEO_MAX) {
+        const full = Math.abs(a1 - a0) >= TAU - 1e-9;
+        const start = cw ? a1 : a0, sweep = full ? TAU : normAngle(cw ? a0 - a1 : a1 - a0) || TAU;
+        this.geo.a.push(cx - this.ox, cy - this.oy, r, normAngle(start), sweep, this.li);
+      }
+      this.gx = cx - this.ox + r * Math.cos(a1); this.gy = cy - this.oy + r * Math.sin(a1);
     }
     ellipse(cx, cy, rx, ry, rot, a0, a1, p = this.s, connect = false) {
       if (!(rx > 0) || !(ry > 0)) return;
@@ -237,6 +271,21 @@
       if (connect) this.lineTo(sx, sy, p); else this.moveTo(sx, sy, p);
       this.box(cx - rx, cy - rx); this.box(cx + rx, cy + rx);
       p.ellipse(cx - this.ox, cy - this.oy, rx, ry, rot, a0, a1, false);
+      if (this.geoOk()) {
+        // Snap to an ellipse through a flattened copy, its centre, and its ends when it is partial.
+        let sweep = a1 - a0; if (sweep <= 0) sweep += TAU; if (sweep > TAU) sweep = TAU;
+        const n = Math.max(8, Math.ceil((sweep / TAU) * 96));
+        const at = (t) => { const ex = rx * Math.cos(t), ey = ry * Math.sin(t); return [cx + ex * c - ey * s - this.ox, cy + ex * s + ey * c - this.oy]; };
+        let [px, py] = at(a0);
+        for (let i = 1; i <= n && this.geo.s.length < GEO_MAX; i++) {
+          const [qx, qy] = at(a0 + (sweep * i) / n);
+          this.geo.s.push(px, py, qx, qy, 1, this.li);
+          px = qx; py = qy;
+        }
+        this.geoPoint(cx, cy, 2);
+        if (sweep < TAU - 1e-9) { this.geoPoint(sx, sy, 0); this.geoPoint(px + this.ox, py + this.oy, 0); }
+        this.gx = px; this.gy = py;
+      }
     }
     // Stamp another builder into this one through matrix m. ctx = the insert's layer/colour, used for
     // AutoCAD's inheritance rules (layer "0" and BYBLOCK take the insert's values).
@@ -263,6 +312,7 @@
         }
         this.texts.push({ ...tx, layer, color, m: m.multiply(tx.m) });
       }
+      if (this.geo && sub.geo) this.mergeGeo(sub.geo, m, ctx);
       if (sub.minX <= sub.maxX) {
         const inv = this.ox || this.oy;
         for (const [x, y] of [[sub.minX, sub.minY], [sub.maxX, sub.minY], [sub.minX, sub.maxY], [sub.maxX, sub.maxY]]) {
@@ -271,12 +321,64 @@
         }
       }
     }
+    mergeGeo(g, m, ctx) {
+      const out = this.geo;
+      const zero = geoLayer("0"), into = ctx ? geoLayer(ctx.layer) : -1;
+      const L = (li) => (li === zero && into >= 0 ? into : li);
+      const { a, b, c, d, e, f } = m;
+      const X = (x, y) => a * x + c * y + e, Y = (x, y) => b * x + d * y + f;
+      const S = g.s;
+      for (let i = 0; i < S.length && out.s.length < GEO_MAX; i += 6) {
+        const x1 = S[i], y1 = S[i + 1], x2 = S[i + 2], y2 = S[i + 3];
+        out.s.push(X(x1, y1), Y(x1, y1), X(x2, y2), Y(x2, y2), S[i + 4], L(S[i + 5]));
+      }
+      const P = g.p;
+      for (let i = 0; i < P.length && out.p.length < GEO_MAX; i += 4) out.p.push(X(P[i], P[i + 1]), Y(P[i], P[i + 1]), P[i + 2], L(P[i + 3]));
+      const det = a * d - b * c;
+      const similar = Math.abs(a * a + b * b - (c * c + d * d)) <= 1e-9 * (a * a + b * b + c * c + d * d) && Math.abs(a * c + b * d) <= 1e-9 * (a * a + b * b + c * c + d * d);
+      const k = Math.sqrt(Math.abs(det));
+      const A = g.a;
+      for (let i = 0; i < A.length; i += 6) {
+        const cx = A[i], cy = A[i + 1], r = A[i + 2], st = A[i + 3], sw = A[i + 4], li = L(A[i + 5]);
+        const ncx = X(cx, cy), ncy = Y(cx, cy);
+        if (similar && k > 0) {
+          if (out.a.length >= GEO_MAX) continue;
+          let ns = 0;
+          if (sw < TAU - 1e-9) {
+            const t = det < 0 ? st + sw : st;                  // a mirror reverses the arc's direction
+            const px = cx + r * Math.cos(t), py = cy + r * Math.sin(t);
+            ns = normAngle(Math.atan2(Y(px, py) - ncy, X(px, py) - ncx));
+          }
+          out.a.push(ncx, ncy, r * k, ns, sw, li);
+        } else {
+          // Stretched arcs become elliptical: keep a flattened copy plus centre and ends.
+          const n = Math.max(8, Math.ceil((sw / TAU) * 96));
+          let px = cx + r * Math.cos(st), py = cy + r * Math.sin(st);
+          let ox = X(px, py), oy = Y(px, py);
+          if (sw < TAU - 1e-9 && out.p.length < GEO_MAX) out.p.push(ox, oy, 0, li);
+          for (let j = 1; j <= n && out.s.length < GEO_MAX; j++) {
+            const t = st + (sw * j) / n;
+            px = cx + r * Math.cos(t); py = cy + r * Math.sin(t);
+            const qx = X(px, py), qy = Y(px, py);
+            out.s.push(ox, oy, qx, qy, 1, li);
+            ox = qx; oy = qy;
+          }
+          if (sw < TAU - 1e-9 && out.p.length < GEO_MAX) out.p.push(ox, oy, 0, li);
+          if (out.p.length < GEO_MAX) out.p.push(ncx, ncy, 2, li);
+        }
+      }
+    }
   }
 
   // ---------- Compile ----------
   const SKIPPED = new Set(["ATTDEF", "VIEWPORT", "WIPEOUT", "3DSOLID", "REGION", "BODY", "LIGHT", "SUN", "OLEFRAME", "OLE2FRAME", "IMAGE", "MESH", "SURFACE", "SECTION", "TOLERANCE", "MLINE", "MULTILEADER", "ACAD_PROXY_ENTITY", "SHAPE", "VERTEX", "SEQEND", "ARC_DIMENSION"]);
 
-  function compile(model) {
+  function compile(model, opts) {
+    geoLayers = opts && opts.snap ? new Map() : null;
+    try { return compileModel(model); } finally { geoLayers = null; }
+  }
+
+  function compileModel(model) {
     const ang = model.deg ? (v) => (v || 0) * D2R : (v) => v || 0;
     const blockCache = new Map();
     const blocksCI = new Map();
@@ -519,10 +621,13 @@
           let pts;
           if (e.controlPoints && e.controlPoints.length >= 2) pts = nurbs(e.degree, e.controlPoints, e.knots, e.weights);
           else if (e.fitPoints && e.fitPoints.length >= 2) pts = catmullRom(e.fitPoints, !!(e.flag & 1));
-          if (pts) B.poly(pts, false);
+          if (pts) {
+            B.curve = 1; B.poly(pts, false); B.curve = 0;
+            B.geoPoint(pts[0].x, pts[0].y, 0); B.geoPoint(pts[pts.length - 1].x, pts[pts.length - 1].y, 0);
+          }
           break;
         }
-        case "POINT": B.moveTo(e.position.x, e.position.y); B.lineTo(e.position.x, e.position.y); break;
+        case "POINT": B.moveTo(e.position.x, e.position.y); B.lineTo(e.position.x, e.position.y); B.geoPoint(e.position.x, e.position.y, 1); break;
         case "SOLID": case "TRACE": {
           const c = e.points || [e.corner1, e.corner2, e.corner3, e.corner4 || e.corner3];
           if (!c[0] || !c[2]) break;
@@ -608,6 +713,10 @@
     }
 
     function hatch(B, e, layer, color) {
+      B.noGeo = true;
+      try { hatchBody(B, e, layer, color); } finally { B.noGeo = false; }
+    }
+    function hatchBody(B, e, layer, color) {
       const loops = (e.boundaryPaths || []).map(loopPoints).filter((l) => l.length >= 3);
       if (!loops.length) return;
       const solid = e.solidFill === 1 || /^SOLID$/i.test(e.patternName || "");
@@ -661,7 +770,9 @@
       return { ...t, lines, ax: m.e, ay: m.f, hw: CAP * Math.sqrt(Math.abs(m.a * m.d - m.b * m.c)), len: Math.max(...lines.map((l) => l.length)) };
     });
 
+    const geo = root.geo && { ...root.geo, layers: [...geoLayers.keys()] };
     return {
+      geo,
       groups: [...root.groups.values()],
       texts,
       layers,

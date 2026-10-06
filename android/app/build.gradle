@@ -27,6 +27,20 @@ android {
             keyPassword 'android'
         }
     }
+    // Two apps from one project: "viewer" is DWG-Field, "plus" is DWG-Field Plus (points, drafting, object snap).
+    // Plus installs alongside the viewer under its own id; its page (src/plus/assets/public/index.html, written by
+    // web/build.mjs), name and icons override the viewer's.
+    // (Declared with create(): a bare `plus { }` would call Groovy's plus() operator instead of adding a flavor.)
+    flavorDimensions = ["edition"]
+    productFlavors {
+        create("viewer") {
+            dimension "edition"
+        }
+        create("plus") {
+            dimension "edition"
+            applicationIdSuffix ".plus"
+        }
+    }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug

@@ -1,6 +1,8 @@
 node_modules/
 www/
+www-plus/
 dist/
 test-output/
 tools/_*.mjs
+android/app/src/plus/assets/
 .DS_Store
