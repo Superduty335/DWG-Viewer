@@ -33,7 +33,7 @@ It installs alongside DWG-Field (app id `com.superduty335.dwgfield.plus`).
 
 Plus is `web/plus.js` + `web/plus.css` on top of the viewer. The build inlines them into `www-plus/` and copies its
 page to `android/app/src/plus/assets/public/`; the Android `plus` product flavor supplies that page, the app name
-and the badged icon (`npm run icons` re-renders it via `tools/make-plus-icons.mjs`). iOS builds only the viewer for now.
+and its own icon (artwork in `assets/plus-icon.png`; `npm run icons` re-renders it via `tools/make-plus-icons.mjs`). iOS builds only the viewer for now.
 
 ## Layout
 | Path | What it is |
